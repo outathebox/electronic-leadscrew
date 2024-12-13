@@ -28,7 +28,7 @@
 
 const MESSAGE STARTUP_MESSAGE_2 =
 {
-  .message = { LETTER_E, LETTER_L, LETTER_S, DASH, ONE | POINT, FOUR | POINT, ZERO, ZERO },
+  .message = { LETTER_E, LETTER_L, LETTER_S, DASH, ONE | POINT, FOUR | POINT, ZERO, LETTER_P },
   .displayTime = UI_REFRESH_RATE_HZ * 1.5
 };
 
@@ -69,6 +69,8 @@ const MESSAGE BACKLOG_PANIC_MESSAGE_2 =
 
 
 const Uint16 VALUE_BLANK[4] = { BLANK, BLANK, BLANK, BLANK };
+
+#define PD 1   // changes to allow power button to work when RPM != 0  , allow FWD REV if RPM !=0 AND Power is OFF  12/1/24
 
 UserInterface :: UserInterface(ControlPanel *controlPanel, Core *core, FeedTableFactory *feedTableFactory)
 {
@@ -113,6 +115,11 @@ LED_REG UserInterface::calculateLEDs()
     {
         // power is off
         leds.all = 0;
+#if PD
+        leds.bit.REVERSE = this->reverse;
+        leds.bit.FORWARD = ! this->reverse;
+#endif
+
     }
 
     return leds;
@@ -165,15 +172,26 @@ void UserInterface :: loop( void )
     // read keypresses from the control panel
     keys = controlPanel->getKeys();
 
+#if PD
+    //allow Power button even if RPM !=0
+    if( keys.bit.POWER ) {
+        this->core->setPowerOn(!this->core->isPowerOn());
+        clearMessage();
+    }
+#endif
+
+
     // respond to keypresses
     if( currentRpm == 0 )
     {
         // these keys should only be sensitive when the machine is stopped
+#if PD
+#else
         if( keys.bit.POWER ) {
             this->core->setPowerOn(!this->core->isPowerOn());
             clearMessage();
         }
-
+#endif
         // these should only work when the power is on
         if( this->core->isPowerOn() ) {
             if( keys.bit.IN_MM )
@@ -186,11 +204,16 @@ void UserInterface :: loop( void )
                 this->thread = ! this->thread;
                 core->setFeed(loadFeedTable());
             }
+
+#if PD
+#else
             if( keys.bit.FWD_REV )
             {
                 this->reverse = ! this->reverse;
                 core->setReverse(this->reverse);
             }
+#endif
+
             if( keys.bit.SET )
             {
                 setMessage(&SETTINGS_MESSAGE_1);
@@ -215,6 +238,19 @@ void UserInterface :: loop( void )
                 core->setFeed(feedTable->previous());
             }
         }
+
+
+        //These Keys should work if RPM == 0 or Power is OFF
+#if PD
+        if ((!this->core->isPowerOn() ) || (currentRpm==0))
+        {
+            if( keys.bit.FWD_REV )
+            {
+                this->reverse = ! this->reverse;
+                core->setReverse(this->reverse);
+            }
+        }
+#endif
 
 #ifdef IGNORE_ALL_KEYS_WHEN_RUNNING
     }
